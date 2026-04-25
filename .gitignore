@@ -17,6 +17,12 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# Build outputs
+target/
+
+# Nix build results
+*result*
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 

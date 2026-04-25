@@ -52,6 +52,91 @@ func TestParseModule(t *testing.T) {
 	}
 }
 
+func TestParseModuleErrors(t *testing.T) {
+	t.Run("missing file", func(t *testing.T) {
+		_, err := ParseModule(filepath.Join(t.TempDir(), "go.mod"))
+		if err == nil {
+			t.Fatal("expected missing file error")
+		}
+		if !strings.Contains(err.Error(), "reading go.mod") {
+			t.Fatalf("error does not explain read failure: %v", err)
+		}
+	})
+
+	t.Run("invalid go mod", func(t *testing.T) {
+		dir := t.TempDir()
+		writeGoMod(t, dir, "module\n")
+
+		_, err := ParseModule(filepath.Join(dir, "go.mod"))
+		if err == nil {
+			t.Fatal("expected parse error")
+		}
+		if !strings.Contains(err.Error(), "parsing go.mod") {
+			t.Fatalf("error does not explain parse failure: %v", err)
+		}
+	})
+
+	t.Run("missing module declaration", func(t *testing.T) {
+		dir := t.TempDir()
+		writeGoMod(t, dir, "go 1.22\n")
+
+		_, err := ParseModule(filepath.Join(dir, "go.mod"))
+		if err == nil {
+			t.Fatal("expected missing module error")
+		}
+		if !strings.Contains(err.Error(), "does not declare a module path") {
+			t.Fatalf("error does not explain missing module: %v", err)
+		}
+	})
+}
+
+func TestPackageName(t *testing.T) {
+	tests := []struct {
+		name       string
+		modulePath string
+		want       string
+	}{
+		{
+			name:       "empty",
+			modulePath: "",
+			want:       "app",
+		},
+		{
+			name:       "symbols only",
+			modulePath: "github.com/acme/!!!",
+			want:       "app",
+		},
+		{
+			name:       "leading digit",
+			modulePath: "github.com/acme/123_service",
+			want:       "app-123-service",
+		},
+		{
+			name:       "repeated separators",
+			modulePath: "github.com/acme/a___b",
+			want:       "a-b",
+		},
+		{
+			name:       "unicode",
+			modulePath: "github.com/acme/Über-App",
+			want:       "über-app",
+		},
+		{
+			name:       "mixed case",
+			modulePath: "github.com/acme/My_App",
+			want:       "my-app",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := packageName(tt.modulePath); got != tt.want {
+				t.Fatalf("packageName(%q) = %q, want %q", tt.modulePath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateRunsNopherAndWritesFlake(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
@@ -154,6 +239,48 @@ func TestCommandRunnerMissingBinary(t *testing.T) {
 	}
 }
 
+func TestCommandRunnerIncludesNopherOutputOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	err := (CommandRunner{Binary: failingNopher(t)}).Generate(context.Background(), dir, dir, false)
+	if err == nil {
+		t.Fatal("expected nopher failure")
+	}
+	if !strings.Contains(err.Error(), "running") {
+		t.Fatalf("error does not explain command failure: %v", err)
+	}
+	if !strings.Contains(err.Error(), "boom from nopher") {
+		t.Fatalf("error does not include command output: %v", err)
+	}
+}
+
+func TestCommandRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) {
+	sourceDir := t.TempDir()
+	outputDir := t.TempDir()
+	writeGoMod(t, sourceDir, "module github.com/acme/demo\n\ngo 1.22\n")
+	writeGoSum(t, sourceDir)
+
+	lockfilePath := filepath.Join(outputDir, "nopher.lock.yaml")
+	if err := os.WriteFile(lockfilePath, []byte("existing"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (CommandRunner{Binary: fakeNopher(t)}).Generate(context.Background(), sourceDir, outputDir, false)
+	if err == nil {
+		t.Fatal("expected lockfile overwrite error")
+	}
+	if !strings.Contains(err.Error(), "creating lockfile") {
+		t.Fatalf("error does not explain lockfile failure: %v", err)
+	}
+
+	data, err := os.ReadFile(lockfilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "existing" {
+		t.Fatalf("lockfile was overwritten: %q", string(data))
+	}
+}
+
 type noopRunner struct{}
 
 func (noopRunner) Generate(context.Context, string, string, bool) error {
@@ -193,6 +320,20 @@ if [ "$1" != "generate" ]; then
   exit 2
 fi
 touch "$2/nopher.lock.yaml"
+`
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func failingNopher(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "nopher")
+	script := `#!/bin/sh
+echo "boom from nopher" >&2
+exit 7
 `
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
 		t.Fatal(err)

@@ -2,8 +2,10 @@ package scaffold
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +62,64 @@ func TestServiceRejectsUnsupportedTechnology(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsUndetectedProject(t *testing.T) {
+	dir := t.TempDir()
+	service := NewService(RegisteredGenerator{
+		Tech:      TechGo,
+		Generator: &fakeGenerator{},
+	})
+
+	_, err := service.Generate(context.Background(), Request{Dir: dir})
+	if err == nil {
+		t.Fatal("expected detection error")
+	}
+	if !strings.Contains(err.Error(), "could not detect a supported project type") {
+		t.Fatalf("error does not explain detection failure: %v", err)
+	}
+}
+
+func TestServiceReturnsDetectError(t *testing.T) {
+	dir := t.TempDir()
+	service := NewService(RegisteredGenerator{
+		Tech:      TechGo,
+		Generator: &fakeGenerator{detectErr: errors.New("detect failed")},
+	})
+
+	_, err := service.Generate(context.Background(), Request{Dir: dir})
+	if err == nil {
+		t.Fatal("expected detect error")
+	}
+	if !strings.Contains(err.Error(), "detecting go project") {
+		t.Fatalf("error does not include technology context: %v", err)
+	}
+	if !strings.Contains(err.Error(), "detect failed") {
+		t.Fatalf("error does not include original error: %v", err)
+	}
+}
+
+func TestServiceNormalizesExplicitTechnology(t *testing.T) {
+	dir := t.TempDir()
+	generator := &fakeGenerator{}
+	service := NewService(RegisteredGenerator{
+		Tech:      TechGo,
+		Generator: generator,
+	})
+
+	result, err := service.Generate(context.Background(), Request{
+		Dir:  dir,
+		Tech: " GO ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tech != TechGo {
+		t.Fatalf("tech = %q", result.Tech)
+	}
+	if generator.request.Tech != TechGo {
+		t.Fatalf("request tech = %q", generator.request.Tech)
+	}
+}
+
 func TestServiceRejectsFileProjectPath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "go.mod")
@@ -74,12 +134,13 @@ func TestServiceRejectsFileProjectPath(t *testing.T) {
 }
 
 type fakeGenerator struct {
-	detect  bool
-	request Request
+	detect    bool
+	detectErr error
+	request   Request
 }
 
 func (g *fakeGenerator) Detect(context.Context, string) (bool, error) {
-	return g.detect, nil
+	return g.detect, g.detectErr
 }
 
 func (g *fakeGenerator) Generate(_ context.Context, req Request) (Result, error) {

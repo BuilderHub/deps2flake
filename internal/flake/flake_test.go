@@ -53,6 +53,37 @@ func TestRenderGoContainerPackage(t *testing.T) {
 	}
 }
 
+func TestRenderGoRequiresPackageName(t *testing.T) {
+	_, err := RenderGo(GoData{
+		ModulePath: "github.com/acme/demo",
+	})
+	if err == nil {
+		t.Fatal("expected package name error")
+	}
+	if !strings.Contains(err.Error(), "package name is required") {
+		t.Fatalf("error does not explain missing package name: %v", err)
+	}
+}
+
+func TestWriteGoCreatesNestedOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dist", "flake.nix")
+	err := WriteGo(path, GoData{
+		PackageName: "demo",
+		ModulePath:  "github.com/acme/demo",
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "pname = \"demo\";") {
+		t.Fatalf("unexpected flake contents:\n%s", string(data))
+	}
+}
+
 func TestWriteGoDoesNotOverwriteWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "flake.nix")
@@ -74,5 +105,15 @@ func TestWriteGoDoesNotOverwriteWithoutForce(t *testing.T) {
 	}
 	if string(data) != "existing" {
 		t.Fatalf("file was overwritten: %q", string(data))
+	}
+}
+
+func TestEnsureWritableRequiresPath(t *testing.T) {
+	err := EnsureWritable("", false)
+	if err == nil {
+		t.Fatal("expected path error")
+	}
+	if !strings.Contains(err.Error(), "flake path is required") {
+		t.Fatalf("error does not explain missing path: %v", err)
 	}
 }

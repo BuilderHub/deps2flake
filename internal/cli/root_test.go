@@ -17,7 +17,7 @@ func TestGenerateCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := NewRootCommand()
+	cmd := newRootCommand()
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetArgs([]string{
@@ -28,6 +28,10 @@ func TestGenerateCommand(t *testing.T) {
 		"--out",
 		"dist",
 		"--container",
+		"--go-package",
+		"cmd/api",
+		"--go-package",
+		"./cmd/worker",
 	})
 
 	if err := cmd.Execute(); err != nil {
@@ -42,6 +46,13 @@ func TestGenerateCommand(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "Generated go project flake") {
 		t.Fatalf("unexpected output: %q", output.String())
+	}
+	flakeData, err := os.ReadFile(filepath.Join(projectDir, "dist", "flake.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(flakeData), `subPackages = [ "./cmd/api" "./cmd/worker" ];`) {
+		t.Fatalf("flake missing normalized Go packages:\n%s", string(flakeData))
 	}
 }
 

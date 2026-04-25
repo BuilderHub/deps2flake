@@ -19,31 +19,28 @@ import (
 
 const defaultNopherBin = "nopher"
 
-// NopherRunner produces the nopher.lock.yaml file for a Go project.
-type NopherRunner interface {
-	Generate(ctx context.Context, sourceDir, outputDir string, force bool) error
+type nopherRunner interface {
+	generate(ctx context.Context, sourceDir, outputDir string, force bool) error
 }
 
-// Generator generates flakes for Go projects.
-type Generator struct {
-	runner NopherRunner
+type generator struct {
+	runner nopherRunner
 }
 
 // New creates a Go generator.
-func New(nopherBin string) *Generator {
+func New(nopherBin string) scaffold.Generator {
 	if nopherBin == "" {
 		nopherBin = defaultNopherBin
 	}
-	return &Generator{runner: CommandRunner{Binary: nopherBin}}
+	return &generator{runner: commandRunner{Binary: nopherBin}}
 }
 
-// NewWithRunner creates a Go generator with an injected nopher runner.
-func NewWithRunner(runner NopherRunner) *Generator {
-	return &Generator{runner: runner}
+func newWithRunner(runner nopherRunner) scaffold.Generator {
+	return &generator{runner: runner}
 }
 
 // Detect reports whether dir looks like a Go module.
-func (g *Generator) Detect(_ context.Context, dir string) (bool, error) {
+func (g *generator) Detect(_ context.Context, dir string) (bool, error) {
 	info, err := os.Stat(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -55,8 +52,8 @@ func (g *Generator) Detect(_ context.Context, dir string) (bool, error) {
 }
 
 // Generate creates nopher.lock.yaml and flake.nix for a Go project.
-func (g *Generator) Generate(ctx context.Context, req scaffold.Request) (scaffold.Result, error) {
-	meta, err := ParseModule(filepath.Join(req.Dir, "go.mod"))
+func (g *generator) Generate(ctx context.Context, req scaffold.Request) (scaffold.Result, error) {
+	meta, err := parseModule(filepath.Join(req.Dir, "go.mod"))
 	if err != nil {
 		return scaffold.Result{}, err
 	}
@@ -71,7 +68,7 @@ func (g *Generator) Generate(ctx context.Context, req scaffold.Request) (scaffol
 		return scaffold.Result{}, err
 	}
 
-	if err := g.runner.Generate(ctx, req.Dir, req.OutputDir, req.Force); err != nil {
+	if err := g.runner.generate(ctx, req.Dir, req.OutputDir, req.Force); err != nil {
 		return scaffold.Result{}, err
 	}
 
@@ -79,7 +76,7 @@ func (g *Generator) Generate(ctx context.Context, req scaffold.Request) (scaffol
 		PackageName:      meta.PackageName,
 		ModulePath:       meta.ModulePath,
 		GoVersion:        meta.GoVersion,
-		SubPackages:      []string{"."},
+		SubPackages:      normalizeGoSubPackages(req.Go.SubPackages),
 		IncludeContainer: req.IncludeContainer,
 	}, req.Force); err != nil {
 		return scaffold.Result{}, err
@@ -91,26 +88,46 @@ func (g *Generator) Generate(ctx context.Context, req scaffold.Request) (scaffol
 	}, nil
 }
 
-// Module describes the Go module metadata needed for a generated flake.
-type Module struct {
+func normalizeGoSubPackages(subPackages []string) []string {
+	if len(subPackages) == 0 {
+		return []string{"./"}
+	}
+
+	normalized := make([]string, 0, len(subPackages))
+	for _, subPackage := range subPackages {
+		subPackage = strings.TrimSpace(subPackage)
+		switch subPackage {
+		case "", ".", "./":
+			normalized = append(normalized, "./")
+		default:
+			if strings.HasPrefix(subPackage, "./") {
+				normalized = append(normalized, subPackage)
+				continue
+			}
+			normalized = append(normalized, "./"+subPackage)
+		}
+	}
+	return normalized
+}
+
+type module struct {
 	ModulePath  string
 	GoVersion   string
 	PackageName string
 }
 
-// ParseModule reads module metadata from go.mod.
-func ParseModule(path string) (Module, error) {
+func parseModule(path string) (module, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Module{}, fmt.Errorf("reading go.mod: %w", err)
+		return module{}, fmt.Errorf("reading go.mod: %w", err)
 	}
 
 	parsed, err := modfile.Parse(path, data, nil)
 	if err != nil {
-		return Module{}, fmt.Errorf("parsing go.mod: %w", err)
+		return module{}, fmt.Errorf("parsing go.mod: %w", err)
 	}
 	if parsed.Module == nil || parsed.Module.Mod.Path == "" {
-		return Module{}, fmt.Errorf("go.mod does not declare a module path")
+		return module{}, fmt.Errorf("go.mod does not declare a module path")
 	}
 
 	modulePath := parsed.Module.Mod.Path
@@ -119,7 +136,7 @@ func ParseModule(path string) (Module, error) {
 		goVersion = parsed.Go.Version
 	}
 
-	return Module{
+	return module{
 		ModulePath:  modulePath,
 		GoVersion:   goVersion,
 		PackageName: packageName(modulePath),
@@ -161,13 +178,11 @@ func packageName(modulePath string) string {
 	return name
 }
 
-// CommandRunner shells out to the nopher CLI.
-type CommandRunner struct {
+type commandRunner struct {
 	Binary string
 }
 
-// Generate runs `nopher generate` and writes nopher.lock.yaml to outputDir.
-func (r CommandRunner) Generate(ctx context.Context, sourceDir, outputDir string, force bool) error {
+func (r commandRunner) generate(ctx context.Context, sourceDir, outputDir string, force bool) error {
 	binary := r.Binary
 	if binary == "" {
 		binary = defaultNopherBin
@@ -227,7 +242,7 @@ func (r CommandRunner) Generate(ctx context.Context, sourceDir, outputDir string
 	return nil
 }
 
-func (r CommandRunner) generateInDir(ctx context.Context, binary, dir string) error {
+func (r commandRunner) generateInDir(ctx context.Context, binary, dir string) error {
 	cmd := exec.CommandContext(ctx, binary, "generate", dir)
 	output, err := cmd.CombinedOutput()
 	if err == nil {

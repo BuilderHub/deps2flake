@@ -14,14 +14,13 @@ const version = "0.1.0"
 
 // Execute runs the root command and exits non-zero on failure.
 func Execute() {
-	if err := NewRootCommand().Execute(); err != nil {
+	if err := newRootCommand().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-// NewRootCommand builds the root command.
-func NewRootCommand() *cobra.Command {
+func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "deps2flake",
 		Short:         "Generate Nix flakes from existing dependency files",
@@ -39,6 +38,7 @@ type generateOptions struct {
 	includeContainer bool
 	outputDir        string
 	nopherBin        string
+	goSubPackages    []string
 	force            bool
 }
 
@@ -68,7 +68,9 @@ func newGenerateCommand() *cobra.Command {
 				Tech:             scaffold.TechString(opts.tech),
 				IncludeContainer: opts.includeContainer,
 				Force:            opts.force,
-				NopherBin:        opts.nopherBin,
+				Go: scaffold.GoOptions{
+					SubPackages: opts.goSubPackages,
+				},
 			})
 			if err != nil {
 				return err
@@ -91,6 +93,7 @@ func newGenerateCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.includeContainer, "container", false, "also generate packages.container")
 	cmd.Flags().StringVar(&opts.outputDir, "out", "", "output directory for generated files, relative to the project directory when not absolute")
 	cmd.Flags().StringVar(&opts.nopherBin, "nopher-bin", opts.nopherBin, "nopher executable to run for Go projects")
+	cmd.Flags().StringArrayVar(&opts.goSubPackages, "go-package", nil, "Go package to build; repeat to include multiple subpackages")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite an existing flake")
 
 	return cmd

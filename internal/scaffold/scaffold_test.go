@@ -78,6 +78,31 @@ func TestServiceRejectsUndetectedProject(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsGoOptionsForNonGoProject(t *testing.T) {
+	dir := t.TempDir()
+	generator := &fakeGenerator{detect: true}
+	service := NewService(RegisteredGenerator{
+		Tech:      TechString("python"),
+		Generator: generator,
+	})
+
+	_, err := service.Generate(context.Background(), Request{
+		Dir: dir,
+		Go: GoOptions{
+			SubPackages: []string{"./cmd/api"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected Go option validation error")
+	}
+	if !strings.Contains(err.Error(), "--go-package is only supported for go projects") {
+		t.Fatalf("error does not explain Go option validation: %v", err)
+	}
+	if generator.request.Dir != "" {
+		t.Fatalf("generator ran despite invalid Go options: %+v", generator.request)
+	}
+}
+
 func TestServiceReturnsDetectError(t *testing.T) {
 	dir := t.TempDir()
 	service := NewService(RegisteredGenerator{

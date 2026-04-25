@@ -13,7 +13,7 @@ import (
 
 func TestDetectGoModule(t *testing.T) {
 	dir := t.TempDir()
-	generator := NewWithRunner(noopRunner{})
+	generator := newWithRunner(noopRunner{})
 
 	ok, err := generator.Detect(context.Background(), dir)
 	if err != nil {
@@ -37,7 +37,7 @@ func TestParseModule(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/acme/My_App\n\ngo 1.22\n")
 
-	meta, err := ParseModule(filepath.Join(dir, "go.mod"))
+	meta, err := parseModule(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestParseModule(t *testing.T) {
 
 func TestParseModuleErrors(t *testing.T) {
 	t.Run("missing file", func(t *testing.T) {
-		_, err := ParseModule(filepath.Join(t.TempDir(), "go.mod"))
+		_, err := parseModule(filepath.Join(t.TempDir(), "go.mod"))
 		if err == nil {
 			t.Fatal("expected missing file error")
 		}
@@ -67,7 +67,7 @@ func TestParseModuleErrors(t *testing.T) {
 		dir := t.TempDir()
 		writeGoMod(t, dir, "module\n")
 
-		_, err := ParseModule(filepath.Join(dir, "go.mod"))
+		_, err := parseModule(filepath.Join(dir, "go.mod"))
 		if err == nil {
 			t.Fatal("expected parse error")
 		}
@@ -80,7 +80,7 @@ func TestParseModuleErrors(t *testing.T) {
 		dir := t.TempDir()
 		writeGoMod(t, dir, "go 1.22\n")
 
-		_, err := ParseModule(filepath.Join(dir, "go.mod"))
+		_, err := parseModule(filepath.Join(dir, "go.mod"))
 		if err == nil {
 			t.Fatal("expected missing module error")
 		}
@@ -176,6 +176,31 @@ func TestGenerateRunsNopherAndWritesFlake(t *testing.T) {
 	}
 }
 
+func TestGenerateWritesRequestedSubPackages(t *testing.T) {
+	dir := t.TempDir()
+	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
+	writeGoSum(t, dir)
+
+	result, err := New(fakeNopher(t)).Generate(context.Background(), scaffold.Request{
+		Dir:       dir,
+		OutputDir: dir,
+		Go: scaffold.GoOptions{
+			SubPackages: []string{"cmd/api", "./cmd/worker"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flakeData, err := os.ReadFile(result.FlakePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(flakeData), `subPackages = [ "./cmd/api" "./cmd/worker" ];`) {
+		t.Fatalf("flake missing normalized subpackages:\n%s", string(flakeData))
+	}
+}
+
 func TestGenerateWritesAllGeneratedFilesToOutputDir(t *testing.T) {
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "dist")
@@ -216,7 +241,7 @@ func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
 	}
 
 	runner := &countingRunner{}
-	_, err := NewWithRunner(runner).Generate(context.Background(), scaffold.Request{
+	_, err := newWithRunner(runner).Generate(context.Background(), scaffold.Request{
 		Dir:       dir,
 		OutputDir: dir,
 	})
@@ -230,7 +255,7 @@ func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
 
 func TestCommandRunnerMissingBinary(t *testing.T) {
 	dir := t.TempDir()
-	err := (CommandRunner{Binary: "deps2flake-nopher-does-not-exist"}).Generate(context.Background(), dir, dir, false)
+	err := (commandRunner{Binary: "deps2flake-nopher-does-not-exist"}).generate(context.Background(), dir, dir, false)
 	if err == nil {
 		t.Fatal("expected missing binary error")
 	}
@@ -241,7 +266,7 @@ func TestCommandRunnerMissingBinary(t *testing.T) {
 
 func TestCommandRunnerIncludesNopherOutputOnFailure(t *testing.T) {
 	dir := t.TempDir()
-	err := (CommandRunner{Binary: failingNopher(t)}).Generate(context.Background(), dir, dir, false)
+	err := (commandRunner{Binary: failingNopher(t)}).generate(context.Background(), dir, dir, false)
 	if err == nil {
 		t.Fatal("expected nopher failure")
 	}
@@ -264,7 +289,7 @@ func TestCommandRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	err := (CommandRunner{Binary: fakeNopher(t)}).Generate(context.Background(), sourceDir, outputDir, false)
+	err := (commandRunner{Binary: fakeNopher(t)}).generate(context.Background(), sourceDir, outputDir, false)
 	if err == nil {
 		t.Fatal("expected lockfile overwrite error")
 	}
@@ -281,9 +306,51 @@ func TestCommandRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) 
 	}
 }
 
+func TestNormalizeGoSubPackages(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "default",
+			want: []string{"./"},
+		},
+		{
+			name: "root",
+			in:   []string{"."},
+			want: []string{"./"},
+		},
+		{
+			name: "root slash",
+			in:   []string{"./"},
+			want: []string{"./"},
+		},
+		{
+			name: "relative",
+			in:   []string{"cmd/api"},
+			want: []string{"./cmd/api"},
+		},
+		{
+			name: "already relative",
+			in:   []string{"./cmd/worker"},
+			want: []string{"./cmd/worker"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeGoSubPackages(tt.in)
+			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
+				t.Fatalf("normalizeGoSubPackages(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 type noopRunner struct{}
 
-func (noopRunner) Generate(context.Context, string, string, bool) error {
+func (noopRunner) generate(context.Context, string, string, bool) error {
 	return nil
 }
 
@@ -291,7 +358,7 @@ type countingRunner struct {
 	calls int
 }
 
-func (r *countingRunner) Generate(context.Context, string, string, bool) error {
+func (r *countingRunner) generate(context.Context, string, string, bool) error {
 	r.calls++
 	return nil
 }

@@ -24,7 +24,12 @@ type Request struct {
 	Tech             TechString
 	IncludeContainer bool
 	Force            bool
-	NopherBin        string
+	Go               GoOptions
+}
+
+// GoOptions contains Go-specific scaffold options.
+type GoOptions struct {
+	SubPackages []string
 }
 
 // Result describes the files produced by a generator.
@@ -59,6 +64,9 @@ func NewService(generators ...RegisteredGenerator) *Service {
 // Generate detects or selects a technology generator, then generates the flake.
 func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 	req.Tech = normalizeTech(req.Tech)
+	if err := validateGoOptionsForTech(req.Go, req.Tech); err != nil {
+		return Result{}, err
+	}
 	if req.Dir == "" {
 		req.Dir = "."
 	}
@@ -84,6 +92,9 @@ func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 
 	generator, tech, err := s.generatorFor(ctx, req.Tech, dir)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := validateGoOptionsForTech(req.Go, tech); err != nil {
 		return Result{}, err
 	}
 
@@ -116,6 +127,13 @@ func (s *Service) generatorFor(ctx context.Context, tech TechString, dir string)
 	}
 
 	return nil, "", fmt.Errorf("could not detect a supported project type in %q", dir)
+}
+
+func validateGoOptionsForTech(opts GoOptions, tech TechString) error {
+	if len(opts.SubPackages) == 0 || tech == TechAuto || tech == TechGo {
+		return nil
+	}
+	return fmt.Errorf("--go-package is only supported for go projects")
 }
 
 func normalizeTech(tech TechString) TechString {

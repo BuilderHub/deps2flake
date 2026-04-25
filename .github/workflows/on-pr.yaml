@@ -1,0 +1,45 @@
+---
+name: On Pull Request
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: Run checks
+        run: nix develop --command make all
+
+      - name: Build derivation
+        run: nix build .#default
+
+      - name: Generate coverage
+        run: nix develop --command make coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v6
+        with:
+          use_oidc: true
+          files: target/coverage.out
+          fail_ci_if_error: true

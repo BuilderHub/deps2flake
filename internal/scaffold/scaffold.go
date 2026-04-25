@@ -17,7 +17,7 @@ const (
 // Request contains the user-facing options for generating a project flake.
 type Request struct {
 	Dir              string
-	OutputPath       string
+	OutputDir        string
 	Tech             string
 	IncludeContainer bool
 	Force            bool
@@ -73,10 +73,10 @@ func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 	}
 	req.Dir = dir
 
-	if req.OutputPath == "" {
-		req.OutputPath = filepath.Join(dir, "flake.nix")
-	} else if !filepath.IsAbs(req.OutputPath) {
-		req.OutputPath = filepath.Join(dir, req.OutputPath)
+	if req.OutputDir == "" {
+		req.OutputDir = dir
+	} else if !filepath.IsAbs(req.OutputDir) {
+		req.OutputDir = filepath.Join(dir, req.OutputDir)
 	}
 
 	generator, tech, err := s.generatorFor(ctx, req.Tech, dir)

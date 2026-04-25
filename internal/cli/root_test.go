@@ -13,6 +13,9 @@ func TestGenerateCommand(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module github.com/acme/demo\n\ngo 1.22\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(projectDir, "go.sum"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := NewRootCommand()
 	var output bytes.Buffer
@@ -22,6 +25,8 @@ func TestGenerateCommand(t *testing.T) {
 		projectDir,
 		"--nopher-bin",
 		fakeNopher(t),
+		"--out",
+		"dist",
 		"--container",
 	})
 
@@ -29,10 +34,10 @@ func TestGenerateCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(projectDir, "flake.nix")); err != nil {
+	if _, err := os.Stat(filepath.Join(projectDir, "dist", "flake.nix")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "nopher.lock.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(projectDir, "dist", "nopher.lock.yaml")); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "Generated go project flake") {

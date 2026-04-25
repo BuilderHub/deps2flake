@@ -37,7 +37,7 @@ func NewRootCommand() *cobra.Command {
 type generateOptions struct {
 	tech             string
 	includeContainer bool
-	outputPath       string
+	outputDir        string
 	nopherBin        string
 	force            bool
 }
@@ -64,7 +64,7 @@ func newGenerateCommand() *cobra.Command {
 			})
 			result, err := service.Generate(cmd.Context(), scaffold.Request{
 				Dir:              dir,
-				OutputPath:       opts.outputPath,
+				OutputDir:        opts.outputDir,
 				Tech:             opts.tech,
 				IncludeContainer: opts.includeContainer,
 				Force:            opts.force,
@@ -89,7 +89,7 @@ func newGenerateCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.tech, "tech", opts.tech, "technology to scaffold: auto or go")
 	cmd.Flags().BoolVar(&opts.includeContainer, "container", false, "also generate packages.container")
-	cmd.Flags().StringVar(&opts.outputPath, "out", "", "flake output path, relative to the project directory when not absolute")
+	cmd.Flags().StringVar(&opts.outputDir, "out", "", "output directory for generated files, relative to the project directory when not absolute")
 	cmd.Flags().StringVar(&opts.nopherBin, "nopher-bin", opts.nopherBin, "nopher executable to run for Go projects")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite an existing flake")
 

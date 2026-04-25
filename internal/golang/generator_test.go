@@ -2,6 +2,7 @@ package golang
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,12 +55,13 @@ func TestParseModule(t *testing.T) {
 func TestGenerateRunsNopherAndWritesFlake(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
+	writeGoSum(t, dir)
 
 	nopher := fakeNopher(t)
 	generator := New(nopher)
 	result, err := generator.Generate(context.Background(), scaffold.Request{
 		Dir:              dir,
-		OutputPath:       filepath.Join(dir, "flake.nix"),
+		OutputDir:        dir,
 		IncludeContainer: true,
 	})
 	if err != nil {
@@ -89,6 +91,37 @@ func TestGenerateRunsNopherAndWritesFlake(t *testing.T) {
 	}
 }
 
+func TestGenerateWritesAllGeneratedFilesToOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	outputDir := filepath.Join(dir, "dist")
+	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
+	writeGoSum(t, dir)
+
+	result, err := New(fakeNopher(t)).Generate(context.Background(), scaffold.Request{
+		Dir:       dir,
+		OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.FlakePath != filepath.Join(outputDir, "flake.nix") {
+		t.Fatalf("flake path = %q", result.FlakePath)
+	}
+	if result.LockfilePath != filepath.Join(outputDir, "nopher.lock.yaml") {
+		t.Fatalf("lockfile path = %q", result.LockfilePath)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "nopher.lock.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nopher.lock.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source dir lockfile exists or stat failed unexpectedly: %v", err)
+	}
+}
+
 func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
@@ -99,8 +132,8 @@ func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
 
 	runner := &countingRunner{}
 	_, err := NewWithRunner(runner).Generate(context.Background(), scaffold.Request{
-		Dir:        dir,
-		OutputPath: flakePath,
+		Dir:       dir,
+		OutputDir: dir,
 	})
 	if err == nil {
 		t.Fatal("expected overwrite error")
@@ -111,7 +144,8 @@ func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
 }
 
 func TestCommandRunnerMissingBinary(t *testing.T) {
-	err := (CommandRunner{Binary: "deps2flake-nopher-does-not-exist"}).Generate(context.Background(), t.TempDir())
+	dir := t.TempDir()
+	err := (CommandRunner{Binary: "deps2flake-nopher-does-not-exist"}).Generate(context.Background(), dir, dir, false)
 	if err == nil {
 		t.Fatal("expected missing binary error")
 	}
@@ -122,7 +156,7 @@ func TestCommandRunnerMissingBinary(t *testing.T) {
 
 type noopRunner struct{}
 
-func (noopRunner) Generate(context.Context, string) error {
+func (noopRunner) Generate(context.Context, string, string, bool) error {
 	return nil
 }
 
@@ -130,7 +164,7 @@ type countingRunner struct {
 	calls int
 }
 
-func (r *countingRunner) Generate(context.Context, string) error {
+func (r *countingRunner) Generate(context.Context, string, string, bool) error {
 	r.calls++
 	return nil
 }
@@ -138,6 +172,13 @@ func (r *countingRunner) Generate(context.Context, string) error {
 func writeGoMod(t *testing.T, dir, contents string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(contents), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeGoSum(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "go.sum"), nil, 0644); err != nil {
 		t.Fatal(err)
 	}
 }

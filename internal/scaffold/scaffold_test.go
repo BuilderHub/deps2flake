@@ -25,8 +25,28 @@ func TestServiceAutoDetectsGenerator(t *testing.T) {
 	if generator.request.Dir != dir {
 		t.Fatalf("dir = %q", generator.request.Dir)
 	}
-	if generator.request.OutputPath != filepath.Join(dir, "flake.nix") {
-		t.Fatalf("output path = %q", generator.request.OutputPath)
+	if generator.request.OutputDir != dir {
+		t.Fatalf("output dir = %q", generator.request.OutputDir)
+	}
+}
+
+func TestServiceResolvesRelativeOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	generator := &fakeGenerator{detect: true}
+	service := NewService(RegisteredGenerator{
+		Tech:      TechGo,
+		Generator: generator,
+	})
+
+	_, err := service.Generate(context.Background(), Request{
+		Dir:       dir,
+		OutputDir: "dist",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generator.request.OutputDir != filepath.Join(dir, "dist") {
+		t.Fatalf("output dir = %q", generator.request.OutputDir)
 	}
 }
 
@@ -64,5 +84,5 @@ func (g *fakeGenerator) Detect(context.Context, string) (bool, error) {
 
 func (g *fakeGenerator) Generate(_ context.Context, req Request) (Result, error) {
 	g.request = req
-	return Result{FlakePath: req.OutputPath}, nil
+	return Result{FlakePath: filepath.Join(req.OutputDir, "flake.nix")}, nil
 }

@@ -1,5 +1,7 @@
 # deps2flake
 
+[![codecov](https://codecov.io/gh/BuilderHub/deps2flake/graph/badge.svg?token=3EMVGM8I0P)](https://codecov.io/gh/BuilderHub/deps2flake)
+
 Generate a Nix flake from the dependency files already in your project.
 
 Right now `deps2flake` supports Go projects. It reads `go.mod`, asks

@@ -44,7 +44,7 @@ type generateOptions struct {
 
 func newGenerateCommand() *cobra.Command {
 	opts := generateOptions{
-		tech:      scaffold.TechAuto,
+		tech:      string(scaffold.TechAuto),
 		nopherBin: "nopher",
 	}
 
@@ -65,7 +65,7 @@ func newGenerateCommand() *cobra.Command {
 			result, err := service.Generate(cmd.Context(), scaffold.Request{
 				Dir:              dir,
 				OutputDir:        opts.outputDir,
-				Tech:             opts.tech,
+				Tech:             scaffold.TechString(opts.tech),
 				IncludeContainer: opts.includeContainer,
 				Force:            opts.force,
 				NopherBin:        opts.nopherBin,

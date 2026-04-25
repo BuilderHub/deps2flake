@@ -9,16 +9,19 @@ import (
 	"strings"
 )
 
+// TechString identifies a supported project technology.
+type TechString string
+
 const (
-	TechAuto = "auto"
-	TechGo   = "go"
+	TechAuto TechString = "auto"
+	TechGo   TechString = "go"
 )
 
 // Request contains the user-facing options for generating a project flake.
 type Request struct {
 	Dir              string
 	OutputDir        string
-	Tech             string
+	Tech             TechString
 	IncludeContainer bool
 	Force            bool
 	NopherBin        string
@@ -26,7 +29,7 @@ type Request struct {
 
 // Result describes the files produced by a generator.
 type Result struct {
-	Tech         string
+	Tech         TechString
 	FlakePath    string
 	LockfilePath string
 }
@@ -39,7 +42,7 @@ type Generator interface {
 
 // RegisteredGenerator binds a generator implementation to a technology name.
 type RegisteredGenerator struct {
-	Tech      string
+	Tech      TechString
 	Generator Generator
 }
 
@@ -92,7 +95,7 @@ func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 	return result, nil
 }
 
-func (s *Service) generatorFor(ctx context.Context, tech, dir string) (Generator, string, error) {
+func (s *Service) generatorFor(ctx context.Context, tech TechString, dir string) (Generator, TechString, error) {
 	if tech != TechAuto {
 		for _, registered := range s.generators {
 			if registered.Tech == tech {
@@ -115,11 +118,11 @@ func (s *Service) generatorFor(ctx context.Context, tech, dir string) (Generator
 	return nil, "", fmt.Errorf("could not detect a supported project type in %q", dir)
 }
 
-func normalizeTech(tech string) string {
-	switch strings.TrimSpace(strings.ToLower(tech)) {
+func normalizeTech(tech TechString) TechString {
+	switch strings.TrimSpace(strings.ToLower(string(tech))) {
 	case "":
 		return TechAuto
 	default:
-		return strings.TrimSpace(strings.ToLower(tech))
+		return TechString(strings.TrimSpace(strings.ToLower(string(tech))))
 	}
 }

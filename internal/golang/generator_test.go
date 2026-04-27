@@ -278,6 +278,19 @@ func TestCommandRunnerIncludesNopherOutputOnFailure(t *testing.T) {
 	}
 }
 
+func TestCommandRunnerPreservesEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEPS2FLAKE_NOPHER_SENTINEL", "visible")
+
+	err := (commandRunner{Binary: envCheckingNopher(t)}).generate(context.Background(), dir, dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nopher.lock.yaml")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCommandRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) {
 	sourceDir := t.TempDir()
 	outputDir := t.TempDir()
@@ -401,6 +414,27 @@ func failingNopher(t *testing.T) string {
 	script := `#!/bin/sh
 echo "boom from nopher" >&2
 exit 7
+`
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func envCheckingNopher(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "nopher")
+	script := `#!/bin/sh
+set -eu
+if [ "${DEPS2FLAKE_NOPHER_SENTINEL:-}" != "visible" ]; then
+  echo "missing sentinel env var" >&2
+  exit 9
+fi
+if [ "$1" != "generate" ]; then
+  exit 2
+fi
+touch "$2/nopher.lock.yaml"
 `
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
 		t.Fatal(err)

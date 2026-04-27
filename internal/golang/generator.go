@@ -244,6 +244,7 @@ func (r commandRunner) generate(ctx context.Context, sourceDir, outputDir string
 
 func (r commandRunner) generateInDir(ctx context.Context, binary, dir string) error {
 	cmd := exec.CommandContext(ctx, binary, "generate", dir)
+	cmd.Env = os.Environ()
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil

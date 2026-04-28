@@ -125,7 +125,7 @@ func TestRenderGoRejectsInvalidCompiler(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid compiler error")
 	}
-	if !strings.Contains(err.Error(), "--go-compiler must match") {
+	if !strings.Contains(err.Error(), "go compiler must match") {
 		t.Fatalf("error does not explain invalid compiler: %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,9 +11,14 @@ import (
 	"github.com/BuilderHub/deps2flake/internal/version"
 )
 
-func TestRootCommandVersion(t *testing.T) {
-	if got := newRootCommand().Version; got != version.Version {
-		t.Fatalf("root command version = %q, want %q", got, version.Version)
+func TestCLIVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runForTest([]string{"--version"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), version.Version) {
+		t.Fatalf("expected version in stdout %q, stderr %q", stdout.String(), stderr.String())
 	}
 }
 
@@ -25,10 +31,8 @@ func TestGenerateCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := newRootCommand()
 	var output bytes.Buffer
-	cmd.SetOut(&output)
-	cmd.SetArgs([]string{
+	err := runForTest([]string{
 		"generate",
 		projectDir,
 		"--nopher-bin",
@@ -36,17 +40,15 @@ func TestGenerateCommand(t *testing.T) {
 		"--out",
 		"dist",
 		"--container",
-		"--go-package",
+		"--go.package",
 		"cmd/api",
-		"--go-package",
+		"--go.package",
 		"./cmd/worker",
-		"--go-tags",
+		"--go.tags",
 		"netgo",
-		"--go-ldflags",
-		"-s",
-	})
-
-	if err := cmd.Execute(); err != nil {
+		"--go.ldflags=-s",
+	}, &output, io.Discard)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -75,19 +77,16 @@ func TestGenerateCommand(t *testing.T) {
 }
 
 func TestGenerateCommandRejectsInvalidGoCompiler(t *testing.T) {
-	cmd := newRootCommand()
-	cmd.SetArgs([]string{
+	err := runForTest([]string{
 		"generate",
 		t.TempDir(),
-		"--go-compiler",
+		"--go.compiler",
 		"notvalid",
-	})
-
-	err := cmd.Execute()
+	}, io.Discard, io.Discard)
 	if err == nil {
 		t.Fatal("expected invalid go compiler error")
 	}
-	if !strings.Contains(err.Error(), "--go-compiler must match") {
+	if !strings.Contains(err.Error(), "go compiler must match") {
 		t.Fatalf("error does not explain invalid compiler: %v", err)
 	}
 }

@@ -194,7 +194,7 @@ func ValidateGoCompiler(expr string) error {
 		return nil
 	}
 	if !goCompilerPattern.MatchString(expr) {
-		return fmt.Errorf(`--go-compiler must match pkgs.ident[.ident]... (got %q)`, expr)
+		return fmt.Errorf(`go compiler must match pkgs.ident[.ident]... (got %q)`, expr)
 	}
 	return nil
 }

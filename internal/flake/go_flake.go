@@ -81,12 +81,6 @@ func normalizeGoDataLists(data *GoData) {
 	if strings.TrimSpace(data.CGOEnabled) == "" {
 		data.CGOEnabled = ""
 	}
-	if strings.TrimSpace(data.GOOS) == "" {
-		data.GOOS = ""
-	}
-	if strings.TrimSpace(data.GOARCH) == "" {
-		data.GOARCH = ""
-	}
 	if strings.TrimSpace(data.Compiler) == "" {
 		data.Compiler = ""
 	}
@@ -158,7 +152,7 @@ var goTemplate = template.Must(template.New("go-flake").Funcs(template.FuncMap{
         pkgs = nixpkgs.legacyPackages.${system};
         nopherLib = nopher.lib.${system};
 
-        app = nopherLib.buildNopherGoApp {
+        mkApp = pkgs: nopherLib: nopherLib.buildNopherGoApp {
           pname = "{{ .PackageName }}";
           version = "0.1.0";
           src = ./.;
@@ -175,12 +169,6 @@ var goTemplate = template.Must(template.New("go-flake").Funcs(template.FuncMap{
 {{- end }}
 {{- if .CGOEnabled }}
           CGO_ENABLED = {{ nixString .CGOEnabled }};
-{{- end }}
-{{- if .GOOS }}
-          GOOS = {{ nixString .GOOS }};
-{{- end }}
-{{- if .GOARCH }}
-          GOARCH = {{ nixString .GOARCH }};
 {{- end }}
 {{- if .SkipCheck }}
           doCheck = false;
@@ -215,6 +203,17 @@ var goTemplate = template.Must(template.New("go-flake").Funcs(template.FuncMap{
             mainProgram = "{{ .PackageName }}";
           };
         };
+
+        app = mkApp pkgs nopherLib;
+{{- if .IncludeContainer }}
+        linuxSystem =
+          if system == "aarch64-darwin" then "aarch64-linux"
+          else if system == "x86_64-darwin" then "x86_64-linux"
+          else system;
+        appLinux =
+          if linuxSystem == system then app
+          else mkApp nixpkgs.legacyPackages.${linuxSystem} nopher.lib.${linuxSystem};
+{{- end }}
       in
       {
         packages = {
@@ -223,9 +222,9 @@ var goTemplate = template.Must(template.New("go-flake").Funcs(template.FuncMap{
           container = pkgs.dockerTools.buildLayeredImage {
             name = "{{ .PackageName }}";
             tag = "latest";
-            contents = [ app ];
+            contents = [ appLinux ];
             config = {
-              Cmd = [ "${app}/bin/{{ .PackageName }}" ];
+              Cmd = [ "${appLinux}/bin/{{ .PackageName }}" ];
             };
           };
 {{- end }}

@@ -22,6 +22,8 @@ func TestRenderGoDefaultPackage(t *testing.T) {
 	for _, want := range []string{
 		"nopher.url = \"github:anthr76/nopher\";",
 		"default = app;",
+		"mkApp = pkgs: nopherLib:",
+		"app = mkApp pkgs nopherLib;",
 		"modules = ./nopher.lock.yaml;",
 		"subPackages = [ \"./\" ];",
 		`version = "0.1.0";`,
@@ -30,8 +32,8 @@ func TestRenderGoDefaultPackage(t *testing.T) {
 			t.Fatalf("rendered flake does not contain %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "container =") {
-		t.Fatalf("container package rendered without IncludeContainer:\n%s", got)
+	if strings.Contains(got, "linuxSystem =") {
+		t.Fatalf("linuxSystem binding rendered without IncludeContainer:\n%s", got)
 	}
 }
 
@@ -65,8 +67,14 @@ func TestRenderGoContainerPackage(t *testing.T) {
 
 	got := string(rendered)
 	for _, want := range []string{
+		"mkApp = pkgs: nopherLib:",
+		"linuxSystem =",
+		"aarch64-linux",
+		"x86_64-linux",
+		"appLinux =",
 		"container = pkgs.dockerTools.buildLayeredImage",
-		"Cmd = [ \"${app}/bin/demo\" ];",
+		"contents = [ appLinux ];",
+		`Cmd = [ "${appLinux}/bin/demo" ];`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("rendered flake does not contain %q:\n%s", want, got)
@@ -83,8 +91,6 @@ func TestRenderGoNopherPassthrough(t *testing.T) {
 			Tags:       []string{"netgo"},
 			CheckFlags: []string{"-short"},
 			CGOEnabled: "1",
-			GOOS:       "linux",
-			GOARCH:     "amd64",
 			SkipCheck:  true,
 			Compiler:   "pkgs.go_1_24",
 			DerivationArgs: []string{
@@ -103,8 +109,6 @@ func TestRenderGoNopherPassthrough(t *testing.T) {
 		`tags = [ "netgo" ];`,
 		`checkFlags = [ "-short" ];`,
 		`CGO_ENABLED = "1";`,
-		`GOOS = "linux";`,
-		`GOARCH = "amd64";`,
 		`doCheck = false;`,
 		`buildInputs = [ pkgs.libusb1 ];`,
 	} {

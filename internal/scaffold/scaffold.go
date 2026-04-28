@@ -37,8 +37,6 @@ type GoOptions struct {
 	CheckFlags []string
 
 	CGOEnabled string
-	GOOS       string
-	GOARCH     string
 
 	SkipCheck bool
 
@@ -160,8 +158,6 @@ func goOptionsAnySet(opts GoOptions) bool {
 		len(opts.Tags) > 0,
 		len(opts.CheckFlags) > 0,
 		opts.CGOEnabled != "",
-		opts.GOOS != "",
-		opts.GOARCH != "",
 		opts.SkipCheck,
 		opts.PreBuild != "",
 		opts.PostBuild != "",

@@ -23,8 +23,6 @@ type goFlagGroup struct {
 	Tags          []string `sep:"none" help:"Build tags for go build (repeatable)."`
 	CheckFlag     []string `sep:"none" name:"check-flag" help:"Extra args to go test in checkPhase (repeatable)."`
 	CGOEnabled    string   `name:"cgo-enabled" help:"Set CGO_ENABLED (e.g. 0 or 1); omit for nopher default."`
-	OS            string   `name:"os" help:"Set GOOS; omit for nopher default (null)."`
-	Arch          string   `name:"arch" help:"Set GOARCH; omit for nopher default (null)."`
 	SkipCheck     bool     `name:"skip-check" help:"Set doCheck = false."`
 	PreBuild      string   `name:"pre-build" help:"Bash fragment for nopher preBuild."`
 	PostBuild     string   `name:"post-build" help:"Bash fragment for nopher postBuild."`
@@ -69,8 +67,6 @@ func (g *generateCmd) Run(k *kong.Kong) error {
 			Tags:           g.Go.Tags,
 			CheckFlags:     g.Go.CheckFlag,
 			CGOEnabled:     g.Go.CGOEnabled,
-			GOOS:           g.Go.OS,
-			GOARCH:         g.Go.Arch,
 			SkipCheck:      g.Go.SkipCheck,
 			PreBuild:       g.Go.PreBuild,
 			PostBuild:      g.Go.PostBuild,

@@ -1,4 +1,4 @@
-// Package flake renders Nix flakes for supported project types.
+// Package flake is the template layer for generated Nix flakes.
 package flake
 
 import (

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -27,9 +28,30 @@ type Request struct {
 	Go               GoOptions
 }
 
-// GoOptions contains Go-specific scaffold options.
+// GoOptions contains Go-specific scaffold options (nopher buildNopherGoApp pass-through).
 type GoOptions struct {
 	SubPackages []string
+
+	Ldflags    []string
+	Tags       []string
+	CheckFlags []string
+
+	CGOEnabled string
+
+	SkipCheck bool
+
+	PreBuild    string
+	PostBuild   string
+	PreCheck    string
+	PostCheck   string
+	PreInstall  string
+	PostInstall string
+
+	// Compiler is a Nix expression for the go attribute (e.g. pkgs.go_1_24).
+	Compiler string
+
+	// DerivationArgs are raw `attr = value;` Nix fragments merged into buildNopherGoApp.
+	DerivationArgs []string
 }
 
 // Result describes the files produced by a generator.
@@ -129,12 +151,51 @@ func (s *Service) generatorFor(ctx context.Context, tech TechString, dir string)
 	return nil, "", fmt.Errorf("could not detect a supported project type in %q", dir)
 }
 
+func goOptionsAnySet(opts GoOptions) bool {
+	switch {
+	case len(opts.SubPackages) > 0,
+		len(opts.Ldflags) > 0,
+		len(opts.Tags) > 0,
+		len(opts.CheckFlags) > 0,
+		opts.CGOEnabled != "",
+		opts.SkipCheck,
+		opts.PreBuild != "",
+		opts.PostBuild != "",
+		opts.PreCheck != "",
+		opts.PostCheck != "",
+		opts.PreInstall != "",
+		opts.PostInstall != "",
+		opts.Compiler != "",
+		len(opts.DerivationArgs) > 0:
+		return true
+	default:
+		return false
+	}
+}
+
 func validateGoOptionsForTech(opts GoOptions, tech TechString) error {
-	if len(opts.SubPackages) == 0 || tech == TechAuto || tech == TechGo {
+	if tech == TechAuto || tech == TechGo {
 		return nil
 	}
-	return fmt.Errorf("--go-package is only supported for go projects")
+	if !goOptionsAnySet(opts) {
+		return nil
+	}
+	return fmt.Errorf("go-specific options (--go-*) are only supported for go projects")
 }
+
+// ValidateGoCompiler checks whether expr is a conservative pkgs.* attribute path.
+func ValidateGoCompiler(expr string) error {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil
+	}
+	if !goCompilerPattern.MatchString(expr) {
+		return fmt.Errorf(`go compiler must match pkgs.ident[.ident]... (got %q)`, expr)
+	}
+	return nil
+}
+
+var goCompilerPattern = regexp.MustCompile(`^pkgs\.[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*$`)
 
 func normalizeTech(tech TechString) TechString {
 	switch strings.TrimSpace(strings.ToLower(string(tech))) {

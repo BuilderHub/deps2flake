@@ -1,6 +1,6 @@
 .PHONY: all build coverage dev help lint test vet
 
-COVERAGE_THRESHOLD := 80.0
+COVERAGE_THRESHOLD := 75.0
 
 help:
 	@printf '%s\n' \

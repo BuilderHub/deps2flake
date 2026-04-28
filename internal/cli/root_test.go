@@ -2,11 +2,25 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BuilderHub/deps2flake/internal/version"
 )
+
+func TestCLIVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runForTest([]string{"--version"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), version.Version) {
+		t.Fatalf("expected version in stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+}
 
 func TestGenerateCommand(t *testing.T) {
 	projectDir := t.TempDir()
@@ -17,10 +31,8 @@ func TestGenerateCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := newRootCommand()
 	var output bytes.Buffer
-	cmd.SetOut(&output)
-	cmd.SetArgs([]string{
+	err := runForTest([]string{
 		"generate",
 		projectDir,
 		"--nopher-bin",
@@ -28,13 +40,15 @@ func TestGenerateCommand(t *testing.T) {
 		"--out",
 		"dist",
 		"--container",
-		"--go-package",
+		"--go.package",
 		"cmd/api",
-		"--go-package",
+		"--go.package",
 		"./cmd/worker",
-	})
-
-	if err := cmd.Execute(); err != nil {
+		"--go.tags",
+		"netgo",
+		"--go.ldflags=-s",
+	}, &output, io.Discard)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,6 +67,27 @@ func TestGenerateCommand(t *testing.T) {
 	}
 	if !strings.Contains(string(flakeData), `subPackages = [ "./cmd/api" "./cmd/worker" ];`) {
 		t.Fatalf("flake missing normalized Go packages:\n%s", string(flakeData))
+	}
+	if !strings.Contains(string(flakeData), `tags = [ "netgo" ];`) {
+		t.Fatalf("flake missing build tags:\n%s", string(flakeData))
+	}
+	if !strings.Contains(string(flakeData), `ldflags = [ "-s" ];`) {
+		t.Fatalf("flake missing ldflags:\n%s", string(flakeData))
+	}
+}
+
+func TestGenerateCommandRejectsInvalidGoCompiler(t *testing.T) {
+	err := runForTest([]string{
+		"generate",
+		t.TempDir(),
+		"--go.compiler",
+		"notvalid",
+	}, io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("expected invalid go compiler error")
+	}
+	if !strings.Contains(err.Error(), "go compiler must match") {
+		t.Fatalf("error does not explain invalid compiler: %v", err)
 	}
 }
 

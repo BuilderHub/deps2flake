@@ -6,7 +6,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BuilderHub/deps2flake/internal/version"
 )
+
+func TestRootCommandVersion(t *testing.T) {
+	if got := newRootCommand().Version; got != version.Version {
+		t.Fatalf("root command version = %q, want %q", got, version.Version)
+	}
+}
 
 func TestGenerateCommand(t *testing.T) {
 	projectDir := t.TempDir()
@@ -32,6 +40,10 @@ func TestGenerateCommand(t *testing.T) {
 		"cmd/api",
 		"--go-package",
 		"./cmd/worker",
+		"--go-tags",
+		"netgo",
+		"--go-ldflags",
+		"-s",
 	})
 
 	if err := cmd.Execute(); err != nil {
@@ -53,6 +65,30 @@ func TestGenerateCommand(t *testing.T) {
 	}
 	if !strings.Contains(string(flakeData), `subPackages = [ "./cmd/api" "./cmd/worker" ];`) {
 		t.Fatalf("flake missing normalized Go packages:\n%s", string(flakeData))
+	}
+	if !strings.Contains(string(flakeData), `tags = [ "netgo" ];`) {
+		t.Fatalf("flake missing build tags:\n%s", string(flakeData))
+	}
+	if !strings.Contains(string(flakeData), `ldflags = [ "-s" ];`) {
+		t.Fatalf("flake missing ldflags:\n%s", string(flakeData))
+	}
+}
+
+func TestGenerateCommandRejectsInvalidGoCompiler(t *testing.T) {
+	cmd := newRootCommand()
+	cmd.SetArgs([]string{
+		"generate",
+		t.TempDir(),
+		"--go-compiler",
+		"notvalid",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected invalid go compiler error")
+	}
+	if !strings.Contains(err.Error(), "--go-compiler must match") {
+		t.Fatalf("error does not explain invalid compiler: %v", err)
 	}
 }
 

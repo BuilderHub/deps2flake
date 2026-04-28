@@ -201,6 +201,38 @@ func TestGenerateWritesRequestedSubPackages(t *testing.T) {
 	}
 }
 
+func TestGenerateWritesGoNopherOptions(t *testing.T) {
+	dir := t.TempDir()
+	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
+	writeGoSum(t, dir)
+
+	result, err := New(fakeNopher(t)).Generate(context.Background(), scaffold.Request{
+		Dir:       dir,
+		OutputDir: dir,
+		Go: scaffold.GoOptions{
+			Tags:    []string{"netgo"},
+			Ldflags: []string{"-s"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flakeData, err := os.ReadFile(result.FlakePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(flakeData)
+	for _, want := range []string{
+		`tags = [ "netgo" ];`,
+		`ldflags = [ "-s" ];`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("flake missing nopher option %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestGenerateWritesAllGeneratedFilesToOutputDir(t *testing.T) {
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "dist")

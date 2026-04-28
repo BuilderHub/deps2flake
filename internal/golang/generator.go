@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,12 +71,15 @@ func (g *generator) Generate(ctx context.Context, req scaffold.Request) (scaffol
 		return scaffold.Result{}, err
 	}
 
+	goOpts := req.Go
+	goOpts.SubPackages = normalizeGoSubPackages(req.Go.SubPackages)
+
 	if err := flake.WriteGo(flakePath, flake.GoData{
 		PackageName:      meta.PackageName,
 		ModulePath:       meta.ModulePath,
 		GoVersion:        meta.GoVersion,
-		SubPackages:      normalizeGoSubPackages(req.Go.SubPackages),
 		IncludeContainer: req.IncludeContainer,
+		GoOptions:        goOpts,
 	}, req.Force); err != nil {
 		return scaffold.Result{}, err
 	}
@@ -213,33 +215,7 @@ func (r commandRunner) generate(ctx context.Context, sourceDir, outputDir string
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
-	lockfilePath := filepath.Join(outputDir, "nopher.lock.yaml")
-	flag := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if !force {
-		flag |= os.O_EXCL
-	}
-	out, err := os.OpenFile(lockfilePath, flag, 0644)
-	if err != nil {
-		return fmt.Errorf("creating lockfile: %w", err)
-	}
-
-	in, err := os.Open(filepath.Join(tmpDir, "nopher.lock.yaml"))
-	if err != nil {
-		_ = out.Close()
-		return fmt.Errorf("opening generated lockfile: %w", err)
-	}
-	defer func() {
-		_ = in.Close()
-	}()
-
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return fmt.Errorf("copying lockfile: %w", err)
-	}
-	if err := out.Close(); err != nil {
-		return fmt.Errorf("closing lockfile: %w", err)
-	}
-	return nil
+	return copyGeneratedLockfile(filepath.Join(tmpDir, "nopher.lock.yaml"), filepath.Join(outputDir, "nopher.lock.yaml"), force)
 }
 
 func (r commandRunner) generateInDir(ctx context.Context, binary, dir string) error {
@@ -261,25 +237,42 @@ func (r commandRunner) generateInDir(ctx context.Context, binary, dir string) er
 }
 
 func copyFile(source, destination string) error {
-	in, err := os.Open(source)
+	data, err := os.ReadFile(source)
 	if err != nil {
-		return fmt.Errorf("opening %s: %w", filepath.Base(source), err)
+		return fmt.Errorf("reading %s: %w", filepath.Base(source), err)
 	}
-	defer func() {
-		_ = in.Close()
-	}()
+	if err := os.WriteFile(destination, data, 0644); err != nil {
+		return fmt.Errorf("writing %s: %w", filepath.Base(destination), err)
+	}
+	return nil
+}
 
-	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+func copyGeneratedLockfile(source, destination string, force bool) error {
+	data, err := os.ReadFile(source)
 	if err != nil {
-		return fmt.Errorf("creating %s: %w", filepath.Base(destination), err)
+		return fmt.Errorf("reading generated lockfile: %w", err)
 	}
+	flag := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if !force {
+		flag |= os.O_EXCL
+	}
+	if err := writeFile(destination, data, flag, 0644); err != nil {
+		return fmt.Errorf("creating lockfile: %w", err)
+	}
+	return nil
+}
 
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return fmt.Errorf("copying %s: %w", filepath.Base(source), err)
+func writeFile(path string, data []byte, flag int, perm os.FileMode) error {
+	file, err := os.OpenFile(path, flag, perm)
+	if err != nil {
+		return err
 	}
-	if err := out.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", filepath.Base(destination), err)
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
 	}
 	return nil
 }

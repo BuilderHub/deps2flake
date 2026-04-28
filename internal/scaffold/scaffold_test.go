@@ -95,7 +95,7 @@ func TestServiceRejectsGoOptionsForNonGoProject(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Go option validation error")
 	}
-	if !strings.Contains(err.Error(), "--go-package is only supported for go projects") {
+	if !strings.Contains(err.Error(), "go-specific options (--go-*) are only supported for go projects") {
 		t.Fatalf("error does not explain Go option validation: %v", err)
 	}
 	if generator.request.Dir != "" {
@@ -155,6 +155,43 @@ func TestServiceRejectsFileProjectPath(t *testing.T) {
 	_, err := NewService().Generate(context.Background(), Request{Dir: path})
 	if err == nil {
 		t.Fatal("expected directory error")
+	}
+}
+
+func TestValidateGoCompiler(t *testing.T) {
+	if err := ValidateGoCompiler("pkgs.go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateGoCompiler("pkgs.go_1_24"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateGoCompiler(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateGoCompiler("foo"); err == nil {
+		t.Fatal("expected invalid compiler error")
+	}
+}
+
+func TestServiceRejectsGoLdflagsForNonGoProject(t *testing.T) {
+	dir := t.TempDir()
+	generator := &fakeGenerator{detect: true}
+	service := NewService(RegisteredGenerator{
+		Tech:      TechString("python"),
+		Generator: generator,
+	})
+
+	_, err := service.Generate(context.Background(), Request{
+		Dir: dir,
+		Go: GoOptions{
+			Ldflags: []string{"-s"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected Go option validation error")
+	}
+	if !strings.Contains(err.Error(), "go-specific options (--go-*) are only supported for go projects") {
+		t.Fatalf("error does not explain Go option validation: %v", err)
 	}
 }
 

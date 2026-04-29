@@ -13,6 +13,9 @@ import (
 	"github.com/alecthomas/kong"
 )
 
+// goGenerator supplies the Go scaffold generator. Tests may replace this for hermetic runs.
+var goGenerator = func() scaffold.Generator { return golang.New() }
+
 type rootCLI struct {
 	Generate generateCmd `cmd:"" help:"Generate a flake.nix for a project"`
 }
@@ -41,7 +44,6 @@ type generateCmd struct {
 	Out       string `name:"out" help:"Output directory for generated files (relative to project when not absolute)."`
 	Container bool   `name:"container" help:"Also generate packages.container."`
 	Force     bool   `help:"Overwrite an existing flake."`
-	NopherBin string `name:"nopher-bin" default:"nopher" help:"Nopher executable for Go projects."`
 
 	Go goFlagGroup `embed:"" prefix:"go."`
 }
@@ -53,7 +55,7 @@ func (g *generateCmd) Run(k *kong.Kong) error {
 
 	service := scaffold.NewService(scaffold.RegisteredGenerator{
 		Tech:      scaffold.TechGo,
-		Generator: golang.New(g.NopherBin),
+		Generator: goGenerator(),
 	})
 	result, err := service.Generate(context.Background(), scaffold.Request{
 		Dir:              g.Path,

@@ -6,35 +6,36 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode"
 
 	"github.com/BuilderHub/deps2flake/internal/flake"
 	"github.com/BuilderHub/deps2flake/internal/scaffold"
+	nophergen "github.com/anthr76/nopher/pkg/generator"
 	"golang.org/x/mod/modfile"
 )
 
-const defaultNopherBin = "nopher"
-
-type nopherRunner interface {
+type lockfileRunner interface {
 	generate(ctx context.Context, sourceDir, outputDir string, force bool) error
 }
 
 type generator struct {
-	runner nopherRunner
+	runner lockfileRunner
 }
 
 // New creates a Go generator.
-func New(nopherBin string) scaffold.Generator {
-	if nopherBin == "" {
-		nopherBin = defaultNopherBin
-	}
-	return &generator{runner: commandRunner{Binary: nopherBin}}
+func New() scaffold.Generator {
+	return &generator{runner: pkgRunner{opts: nophergen.Options{}}}
 }
 
-func newWithRunner(runner nopherRunner) scaffold.Generator {
+// NewWithNopherOptions returns a Go generator that uses the given nopher options
+// (for example, a test-only Fetch stub).
+func NewWithNopherOptions(opts nophergen.Options) scaffold.Generator {
+	return &generator{runner: pkgRunner{opts: opts}}
+}
+
+func newWithRunner(runner lockfileRunner) scaffold.Generator {
 	return &generator{runner: runner}
 }
 
@@ -180,60 +181,54 @@ func packageName(modulePath string) string {
 	return name
 }
 
-type commandRunner struct {
-	Binary string
+type pkgRunner struct {
+	opts nophergen.Options
 }
 
-func (r commandRunner) generate(ctx context.Context, sourceDir, outputDir string, force bool) error {
-	binary := r.Binary
-	if binary == "" {
-		binary = defaultNopherBin
+func (r pkgRunner) generate(_ context.Context, sourceDir, outputDir string, force bool) error {
+	workDir := sourceDir
+	if sourceDir != outputDir {
+		tmpDir, err := os.MkdirTemp("", "deps2flake-nopher-*")
+		if err != nil {
+			return fmt.Errorf("creating nopher workspace: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(tmpDir) }()
+
+		for _, name := range []string{"go.mod", "go.sum"} {
+			if err := copyFile(filepath.Join(sourceDir, name), filepath.Join(tmpDir, name)); err != nil {
+				return err
+			}
+		}
+		workDir = tmpDir
 	}
 
-	if sourceDir == outputDir {
-		return r.generateInDir(ctx, binary, sourceDir)
-	}
-
-	tmpDir, err := os.MkdirTemp("", "deps2flake-nopher-*")
+	lf, err := nophergen.Generate(workDir, r.opts)
 	if err != nil {
-		return fmt.Errorf("creating nopher workspace: %w", err)
+		return fmt.Errorf("generating nopher lockfile: %w", err)
 	}
-	defer func() {
-		_ = os.RemoveAll(tmpDir)
-	}()
 
-	for _, name := range []string{"go.mod", "go.sum"} {
-		if err := copyFile(filepath.Join(sourceDir, name), filepath.Join(tmpDir, name)); err != nil {
-			return err
+	tmpYAML, err := os.CreateTemp("", "deps2flake-nopher-lock-*.yaml")
+	if err != nil {
+		return fmt.Errorf("creating temp lockfile: %w", err)
+	}
+	tmpPath := tmpYAML.Name()
+	if err := tmpYAML.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("closing temp lockfile: %w", err)
+	}
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if err := lf.SaveYAML(tmpPath); err != nil {
+		return fmt.Errorf("writing temp lockfile: %w", err)
+	}
+
+	dest := filepath.Join(outputDir, "nopher.lock.yaml")
+	if sourceDir != outputDir {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("creating output directory: %w", err)
 		}
 	}
-
-	if err := r.generateInDir(ctx, binary, tmpDir); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("creating output directory: %w", err)
-	}
-	return copyGeneratedLockfile(filepath.Join(tmpDir, "nopher.lock.yaml"), filepath.Join(outputDir, "nopher.lock.yaml"), force)
-}
-
-func (r commandRunner) generateInDir(ctx context.Context, binary, dir string) error {
-	cmd := exec.CommandContext(ctx, binary, "generate", dir)
-	cmd.Env = os.Environ()
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, exec.ErrNotFound) {
-		return fmt.Errorf("nopher executable %q not found; install github.com/anthr76/nopher or pass --nopher-bin: %w", binary, err)
-	}
-
-	message := strings.TrimSpace(string(output))
-	if message == "" {
-		return fmt.Errorf("running %s generate: %w", binary, err)
-	}
-	return fmt.Errorf("running %s generate: %w\n%s", binary, err, message)
+	return copyGeneratedLockfile(tmpPath, dest, force)
 }
 
 func copyFile(source, destination string) error {

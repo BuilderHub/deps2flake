@@ -8,7 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BuilderHub/deps2flake/internal/golang"
+	"github.com/BuilderHub/deps2flake/internal/scaffold"
 	"github.com/BuilderHub/deps2flake/internal/version"
+	nophergen "github.com/anthr76/nopher/pkg/generator"
 )
 
 func TestCLIVersion(t *testing.T) {
@@ -23,6 +26,12 @@ func TestCLIVersion(t *testing.T) {
 }
 
 func TestGenerateCommand(t *testing.T) {
+	prev := goGenerator
+	t.Cleanup(func() { goGenerator = prev })
+	goGenerator = func() scaffold.Generator {
+		return golang.NewWithNopherOptions(testNopherOptions())
+	}
+
 	projectDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module github.com/acme/demo\n\ngo 1.22\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -35,8 +44,6 @@ func TestGenerateCommand(t *testing.T) {
 	err := runForTest([]string{
 		"generate",
 		projectDir,
-		"--nopher-bin",
-		fakeNopher(t),
 		"--out",
 		"dist",
 		"--container",
@@ -91,19 +98,14 @@ func TestGenerateCommandRejectsInvalidGoCompiler(t *testing.T) {
 	}
 }
 
-func fakeNopher(t *testing.T) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "nopher")
-	script := `#!/bin/sh
-set -eu
-if [ "$1" != "generate" ]; then
-  exit 2
-fi
-touch "$2/nopher.lock.yaml"
-`
-	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-		t.Fatal(err)
+func testNopherOptions() nophergen.Options {
+	return nophergen.Options{
+		Fetch: func(modulePath, version string) (*nophergen.FetchResult, error) {
+			return &nophergen.FetchResult{
+				Hash: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+				URL:  "https://example.invalid/" + modulePath + "/@v/" + version + ".zip",
+				Rev:  "0000000000000000000000000000000000000000",
+			}, nil
+		},
 	}
-	return path
 }

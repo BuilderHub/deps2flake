@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BuilderHub/deps2flake/internal/scaffold"
+	nophergen "github.com/anthr76/nopher/pkg/generator"
 )
 
 func TestDetectGoModule(t *testing.T) {
@@ -137,13 +138,12 @@ func TestPackageName(t *testing.T) {
 	}
 }
 
-func TestGenerateRunsNopherAndWritesFlake(t *testing.T) {
+func TestGenerateWritesFlakeAndLockfile(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
 	writeGoSum(t, dir)
 
-	nopher := fakeNopher(t)
-	generator := New(nopher)
+	generator := NewWithNopherOptions(testNopherOptions())
 	result, err := generator.Generate(context.Background(), scaffold.Request{
 		Dir:              dir,
 		OutputDir:        dir,
@@ -181,7 +181,7 @@ func TestGenerateWritesRequestedSubPackages(t *testing.T) {
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
 	writeGoSum(t, dir)
 
-	result, err := New(fakeNopher(t)).Generate(context.Background(), scaffold.Request{
+	result, err := NewWithNopherOptions(testNopherOptions()).Generate(context.Background(), scaffold.Request{
 		Dir:       dir,
 		OutputDir: dir,
 		Go: scaffold.GoOptions{
@@ -206,7 +206,7 @@ func TestGenerateWritesGoNopherOptions(t *testing.T) {
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
 	writeGoSum(t, dir)
 
-	result, err := New(fakeNopher(t)).Generate(context.Background(), scaffold.Request{
+	result, err := NewWithNopherOptions(testNopherOptions()).Generate(context.Background(), scaffold.Request{
 		Dir:       dir,
 		OutputDir: dir,
 		Go: scaffold.GoOptions{
@@ -239,7 +239,7 @@ func TestGenerateWritesAllGeneratedFilesToOutputDir(t *testing.T) {
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
 	writeGoSum(t, dir)
 
-	result, err := New(fakeNopher(t)).Generate(context.Background(), scaffold.Request{
+	result, err := NewWithNopherOptions(testNopherOptions()).Generate(context.Background(), scaffold.Request{
 		Dir:       dir,
 		OutputDir: outputDir,
 	})
@@ -264,7 +264,7 @@ func TestGenerateWritesAllGeneratedFilesToOutputDir(t *testing.T) {
 	}
 }
 
-func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
+func TestGenerateChecksOverwriteBeforeLockfileGeneration(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir, "module github.com/acme/demo\n\ngo 1.22\n")
 	flakePath := filepath.Join(dir, "flake.nix")
@@ -281,49 +281,11 @@ func TestGenerateChecksOverwriteBeforeRunningNopher(t *testing.T) {
 		t.Fatal("expected overwrite error")
 	}
 	if runner.calls != 0 {
-		t.Fatalf("nopher ran before overwrite check: %d calls", runner.calls)
+		t.Fatalf("lockfile generation ran before overwrite check: %d calls", runner.calls)
 	}
 }
 
-func TestCommandRunnerMissingBinary(t *testing.T) {
-	dir := t.TempDir()
-	err := (commandRunner{Binary: "deps2flake-nopher-does-not-exist"}).generate(context.Background(), dir, dir, false)
-	if err == nil {
-		t.Fatal("expected missing binary error")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("error does not explain missing binary: %v", err)
-	}
-}
-
-func TestCommandRunnerIncludesNopherOutputOnFailure(t *testing.T) {
-	dir := t.TempDir()
-	err := (commandRunner{Binary: failingNopher(t)}).generate(context.Background(), dir, dir, false)
-	if err == nil {
-		t.Fatal("expected nopher failure")
-	}
-	if !strings.Contains(err.Error(), "running") {
-		t.Fatalf("error does not explain command failure: %v", err)
-	}
-	if !strings.Contains(err.Error(), "boom from nopher") {
-		t.Fatalf("error does not include command output: %v", err)
-	}
-}
-
-func TestCommandRunnerPreservesEnvironment(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEPS2FLAKE_NOPHER_SENTINEL", "visible")
-
-	err := (commandRunner{Binary: envCheckingNopher(t)}).generate(context.Background(), dir, dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "nopher.lock.yaml")); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestCommandRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) {
+func TestPkgRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) {
 	sourceDir := t.TempDir()
 	outputDir := t.TempDir()
 	writeGoMod(t, sourceDir, "module github.com/acme/demo\n\ngo 1.22\n")
@@ -334,7 +296,7 @@ func TestCommandRunnerDoesNotOverwriteLockfileInSeparateOutputDir(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	err := (commandRunner{Binary: fakeNopher(t)}).generate(context.Background(), sourceDir, outputDir, false)
+	err := (pkgRunner{opts: testNopherOptions()}).generate(context.Background(), sourceDir, outputDir, false)
 	if err == nil {
 		t.Fatal("expected lockfile overwrite error")
 	}
@@ -422,54 +384,14 @@ func writeGoSum(t *testing.T, dir string) {
 	}
 }
 
-func fakeNopher(t *testing.T) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "nopher")
-	script := `#!/bin/sh
-set -eu
-if [ "$1" != "generate" ]; then
-  exit 2
-fi
-touch "$2/nopher.lock.yaml"
-`
-	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-		t.Fatal(err)
+func testNopherOptions() nophergen.Options {
+	return nophergen.Options{
+		Fetch: func(modulePath, version string) (*nophergen.FetchResult, error) {
+			return &nophergen.FetchResult{
+				Hash: "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+				URL:  "https://example.invalid/" + modulePath + "/@v/" + version + ".zip",
+				Rev:  "0000000000000000000000000000000000000000",
+			}, nil
+		},
 	}
-	return path
-}
-
-func failingNopher(t *testing.T) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "nopher")
-	script := `#!/bin/sh
-echo "boom from nopher" >&2
-exit 7
-`
-	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func envCheckingNopher(t *testing.T) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "nopher")
-	script := `#!/bin/sh
-set -eu
-if [ "${DEPS2FLAKE_NOPHER_SENTINEL:-}" != "visible" ]; then
-  echo "missing sentinel env var" >&2
-  exit 9
-fi
-if [ "$1" != "generate" ]; then
-  exit 2
-fi
-touch "$2/nopher.lock.yaml"
-`
-	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BuilderHub/deps2flake/internal/golang"
+	"github.com/BuilderHub/deps2flake/internal/python"
 	"github.com/BuilderHub/deps2flake/internal/scaffold"
 	"github.com/BuilderHub/deps2flake/internal/version"
 	nophergen "github.com/anthr76/nopher/pkg/generator"
@@ -80,6 +81,88 @@ func TestGenerateCommand(t *testing.T) {
 	}
 	if !strings.Contains(string(flakeData), `ldflags = [ "-s" ];`) {
 		t.Fatalf("flake missing ldflags:\n%s", string(flakeData))
+	}
+}
+
+func TestGeneratePythonCommand(t *testing.T) {
+	prev := pythonGenerator
+	t.Cleanup(func() { pythonGenerator = prev })
+	pythonGenerator = func() scaffold.Generator { return python.NewForTest() }
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "pyproject.toml"), []byte(`
+[project]
+name = "demo"
+version = "0.1.0"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "uv.lock"), []byte("version = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	err := runForTest([]string{
+		"generate",
+		projectDir,
+		"--tech",
+		"python",
+		"--out",
+		"dist",
+		"--python.script",
+		"demo-cli",
+		"--python.interpreter",
+		"pkgs.python312",
+		"--python.source-preference",
+		"sdist",
+	}, &output, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, "dist", "flake.nix")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "dist", "uv.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Generated python project flake") {
+		t.Fatalf("unexpected output: %q", output.String())
+	}
+
+	flakeData, err := os.ReadFile(filepath.Join(projectDir, "dist", "flake.nix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(flakeData)
+	if strings.Contains(got, "nopher.url") {
+		t.Fatalf("python flake must not use nopher:\n%s", got)
+	}
+	if !strings.Contains(got, `pkgs.python312`) {
+		t.Fatalf("flake missing interpreter:\n%s", got)
+	}
+	if !strings.Contains(got, `sourcePreference = "sdist"`) {
+		t.Fatalf("flake missing source preference:\n%s", got)
+	}
+	if !strings.Contains(got, `program = "${app}/bin/demo-cli"`) {
+		t.Fatalf("flake missing script:\n%s", got)
+	}
+}
+
+func TestGenerateCommandRejectsInvalidPythonInterpreter(t *testing.T) {
+	err := runForTest([]string{
+		"generate",
+		t.TempDir(),
+		"--tech",
+		"python",
+		"--python.interpreter",
+		"notvalid",
+	}, io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("expected invalid python interpreter error")
+	}
+	if !strings.Contains(err.Error(), "python interpreter must match") {
+		t.Fatalf("error does not explain invalid interpreter: %v", err)
 	}
 }
 

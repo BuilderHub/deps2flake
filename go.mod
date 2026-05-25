@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/alecthomas/kong v1.12.1
 	github.com/anthr76/nopher v0.0.0-20260428140306-569e11a71011
+	github.com/pelletier/go-toml/v2 v2.2.4
 	golang.org/x/mod v0.32.0
 )
 

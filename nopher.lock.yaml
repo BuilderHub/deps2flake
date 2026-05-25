@@ -16,6 +16,11 @@ modules:
         hash: sha256-iEcdiiW23IYy1GEKFLe6Rwi2HjdeXTjJP9VMla7XAxE=
         url: https://proxy.golang.org/github.com/git-lfs/go-netrc/@v/v0.0.0-20250218165306-ba0029b43d11.zip
         rev: ba0029b43d1190baf66986a87418593ed1a07f42
+    github.com/pelletier/go-toml/v2:
+        version: v2.2.4
+        hash: sha256-ghYr57hQd/O+Sb/g8eAfMIuclVTHKpgKIqNEMvlIhfA=
+        url: https://proxy.golang.org/github.com/pelletier/go-toml/v2/@v/v2.2.4.zip
+        rev: ee07c9203b72060f12e31c04ace80e8a187d5a67
     golang.org/x/mod:
         version: v0.32.0
         hash: sha256-wPzuLB7xoKgX6BBWNCvGy4sS0Rvhrd/juodDSi4wRM8=

@@ -14,8 +14,9 @@ import (
 type TechString string
 
 const (
-	TechAuto TechString = "auto"
-	TechGo   TechString = "go"
+	TechAuto   TechString = "auto"
+	TechGo     TechString = "go"
+	TechPython TechString = "python"
 )
 
 // Request contains the user-facing options for generating a project flake.
@@ -26,6 +27,32 @@ type Request struct {
 	IncludeContainer bool
 	Force            bool
 	Go               GoOptions
+	Python           PythonOptions
+}
+
+// PythonOptions contains Python-specific scaffold options (uv2nix pass-through).
+type PythonOptions struct {
+	Scripts []string
+
+	CheckFlags []string
+
+	SkipCheck bool
+
+	PreBuild    string
+	PostBuild   string
+	PreCheck    string
+	PostCheck   string
+	PreInstall  string
+	PostInstall string
+
+	// Interpreter is a Nix expression for the python attribute (e.g. pkgs.python312).
+	Interpreter string
+
+	// SourcePreference is wheel or sdist for uv2nix mkPyprojectOverlay.
+	SourcePreference string
+
+	// DerivationArgs are raw `attr = value;` Nix fragments merged into the app package.
+	DerivationArgs []string
 }
 
 // GoOptions contains Go-specific scaffold options (nopher buildNopherGoApp pass-through).
@@ -89,6 +116,9 @@ func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 	if err := validateGoOptionsForTech(req.Go, req.Tech); err != nil {
 		return Result{}, err
 	}
+	if err := validatePythonOptionsForTech(req.Python, req.Tech); err != nil {
+		return Result{}, err
+	}
 	if req.Dir == "" {
 		req.Dir = "."
 	}
@@ -117,6 +147,9 @@ func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 	if err := validateGoOptionsForTech(req.Go, tech); err != nil {
+		return Result{}, err
+	}
+	if err := validatePythonOptionsForTech(req.Python, tech); err != nil {
 		return Result{}, err
 	}
 
@@ -182,6 +215,62 @@ func validateGoOptionsForTech(opts GoOptions, tech TechString) error {
 	}
 	return fmt.Errorf("go-specific options (--go-*) are only supported for go projects")
 }
+
+func pythonOptionsAnySet(opts PythonOptions) bool {
+	switch {
+	case len(opts.Scripts) > 0,
+		len(opts.CheckFlags) > 0,
+		opts.SkipCheck,
+		opts.PreBuild != "",
+		opts.PostBuild != "",
+		opts.PreCheck != "",
+		opts.PostCheck != "",
+		opts.PreInstall != "",
+		opts.PostInstall != "",
+		opts.Interpreter != "",
+		opts.SourcePreference != "" && opts.SourcePreference != "wheel",
+		len(opts.DerivationArgs) > 0:
+		return true
+	default:
+		return false
+	}
+}
+
+func validatePythonOptionsForTech(opts PythonOptions, tech TechString) error {
+	if tech == TechAuto || tech == TechPython {
+		return nil
+	}
+	if !pythonOptionsAnySet(opts) {
+		return nil
+	}
+	return fmt.Errorf("python-specific options (--python-*) are only supported for python projects")
+}
+
+// ValidatePythonInterpreter checks whether expr is a conservative pkgs.* attribute path.
+func ValidatePythonInterpreter(expr string) error {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil
+	}
+	if !pythonInterpreterPattern.MatchString(expr) {
+		return fmt.Errorf(`python interpreter must match pkgs.ident[.ident]... (got %q)`, expr)
+	}
+	return nil
+}
+
+// ValidatePythonSourcePreference checks uv2nix sourcePreference values.
+func ValidatePythonSourcePreference(value string) error {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" || value == "wheel" {
+		return nil
+	}
+	if value == "sdist" {
+		return nil
+	}
+	return fmt.Errorf(`python source preference must be "wheel" or "sdist" (got %q)`, value)
+}
+
+var pythonInterpreterPattern = regexp.MustCompile(`^pkgs\.[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*$`)
 
 // ValidateGoCompiler checks whether expr is a conservative pkgs.* attribute path.
 func ValidateGoCompiler(expr string) error {

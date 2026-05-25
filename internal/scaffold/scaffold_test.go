@@ -82,7 +82,7 @@ func TestServiceRejectsGoOptionsForNonGoProject(t *testing.T) {
 	dir := t.TempDir()
 	generator := &fakeGenerator{detect: true}
 	service := NewService(RegisteredGenerator{
-		Tech:      TechString("python"),
+		Tech:      TechPython,
 		Generator: generator,
 	})
 
@@ -158,6 +158,55 @@ func TestServiceRejectsFileProjectPath(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsPythonOptionsForNonPythonProject(t *testing.T) {
+	dir := t.TempDir()
+	generator := &fakeGenerator{detect: true}
+	service := NewService(RegisteredGenerator{
+		Tech:      TechGo,
+		Generator: generator,
+	})
+
+	_, err := service.Generate(context.Background(), Request{
+		Dir: dir,
+		Python: PythonOptions{
+			Scripts: []string{"demo-cli"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected Python option validation error")
+	}
+	if !strings.Contains(err.Error(), "python-specific options (--python-*) are only supported for python projects") {
+		t.Fatalf("error does not explain Python option validation: %v", err)
+	}
+	if generator.request.Dir != "" {
+		t.Fatalf("generator ran despite invalid Python options: %+v", generator.request)
+	}
+}
+
+func TestValidatePythonInterpreter(t *testing.T) {
+	if err := ValidatePythonInterpreter("pkgs.python312"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePythonInterpreter(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePythonInterpreter("foo"); err == nil {
+		t.Fatal("expected invalid interpreter error")
+	}
+}
+
+func TestValidatePythonSourcePreference(t *testing.T) {
+	if err := ValidatePythonSourcePreference("wheel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePythonSourcePreference("sdist"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePythonSourcePreference("invalid"); err == nil {
+		t.Fatal("expected invalid source preference error")
+	}
+}
+
 func TestValidateGoCompiler(t *testing.T) {
 	if err := ValidateGoCompiler("pkgs.go"); err != nil {
 		t.Fatal(err)
@@ -177,7 +226,7 @@ func TestServiceRejectsGoLdflagsForNonGoProject(t *testing.T) {
 	dir := t.TempDir()
 	generator := &fakeGenerator{detect: true}
 	service := NewService(RegisteredGenerator{
-		Tech:      TechString("python"),
+		Tech:      TechPython,
 		Generator: generator,
 	})
 

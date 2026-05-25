@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/BuilderHub/deps2flake/internal/golang"
+	"github.com/BuilderHub/deps2flake/internal/python"
 	"github.com/BuilderHub/deps2flake/internal/scaffold"
 	"github.com/BuilderHub/deps2flake/internal/version"
 	"github.com/alecthomas/kong"
@@ -15,6 +16,9 @@ import (
 
 // goGenerator supplies the Go scaffold generator. Tests may replace this for hermetic runs.
 var goGenerator = func() scaffold.Generator { return golang.New() }
+
+// pythonGenerator supplies the Python scaffold generator. Tests may replace this for hermetic runs.
+var pythonGenerator = func() scaffold.Generator { return python.New() }
 
 type rootCLI struct {
 	Generate generateCmd `cmd:"" help:"Generate a flake.nix for a project"`
@@ -37,26 +41,54 @@ type goFlagGroup struct {
 	DerivationArg []string `sep:"none" name:"derivation-arg" help:"Raw Nix attr line inside buildNopherGoApp (repeatable)."`
 }
 
+type pythonFlagGroup struct {
+	Script           []string `sep:"none" name:"script" help:"Console script for apps.default (repeatable; first is main)."`
+	CheckFlag        []string `sep:"none" name:"check-flag" help:"Extra args for the check phase (repeatable)."`
+	SkipCheck        bool     `name:"skip-check" help:"Set doCheck = false on the app derivation."`
+	PreBuild         string   `name:"pre-build" help:"Bash fragment for preBuild."`
+	PostBuild        string   `name:"post-build" help:"Bash fragment for postBuild."`
+	PreCheck         string   `name:"pre-check" help:"Bash fragment for preCheck."`
+	PostCheck        string   `name:"post-check" help:"Bash fragment for postCheck."`
+	PreInstall       string   `name:"pre-install" help:"Bash fragment for preInstall."`
+	PostInstall      string   `name:"post-install" help:"Bash fragment for postInstall."`
+	Interpreter      string   `help:"Nix expression for Python (e.g. pkgs.python312)."`
+	SourcePreference string   `name:"source-preference" default:"wheel" help:"uv2nix sourcePreference: wheel or sdist."`
+	DerivationArg    []string `sep:"none" name:"derivation-arg" help:"Raw Nix attr line inside the app package (repeatable)."`
+}
+
 type generateCmd struct {
 	Path string `arg:"" optional:"" default:"." help:"Project directory."`
 
-	Tech      string `default:"auto" help:"Technology to scaffold: auto or go."`
+	Tech      string `default:"auto" help:"Technology to scaffold: auto, go, or python."`
 	Out       string `name:"out" help:"Output directory for generated files (relative to project when not absolute)."`
 	Container bool   `name:"container" help:"Also generate packages.container."`
 	Force     bool   `help:"Overwrite an existing flake."`
 
-	Go goFlagGroup `embed:"" prefix:"go."`
+	Go     goFlagGroup     `embed:"" prefix:"go."`
+	Python pythonFlagGroup `embed:"" prefix:"python."`
 }
 
 func (g *generateCmd) Run(k *kong.Kong) error {
 	if err := scaffold.ValidateGoCompiler(g.Go.Compiler); err != nil {
 		return err
 	}
+	if err := scaffold.ValidatePythonInterpreter(g.Python.Interpreter); err != nil {
+		return err
+	}
+	if err := scaffold.ValidatePythonSourcePreference(g.Python.SourcePreference); err != nil {
+		return err
+	}
 
-	service := scaffold.NewService(scaffold.RegisteredGenerator{
-		Tech:      scaffold.TechGo,
-		Generator: goGenerator(),
-	})
+	service := scaffold.NewService(
+		scaffold.RegisteredGenerator{
+			Tech:      scaffold.TechGo,
+			Generator: goGenerator(),
+		},
+		scaffold.RegisteredGenerator{
+			Tech:      scaffold.TechPython,
+			Generator: pythonGenerator(),
+		},
+	)
 	result, err := service.Generate(context.Background(), scaffold.Request{
 		Dir:              g.Path,
 		OutputDir:        g.Out,
@@ -78,6 +110,20 @@ func (g *generateCmd) Run(k *kong.Kong) error {
 			PostInstall:    g.Go.PostInstall,
 			Compiler:       g.Go.Compiler,
 			DerivationArgs: g.Go.DerivationArg,
+		},
+		Python: scaffold.PythonOptions{
+			Scripts:          g.Python.Script,
+			CheckFlags:       g.Python.CheckFlag,
+			SkipCheck:        g.Python.SkipCheck,
+			PreBuild:         g.Python.PreBuild,
+			PostBuild:        g.Python.PostBuild,
+			PreCheck:         g.Python.PreCheck,
+			PostCheck:        g.Python.PostCheck,
+			PreInstall:       g.Python.PreInstall,
+			PostInstall:      g.Python.PostInstall,
+			Interpreter:      g.Python.Interpreter,
+			SourcePreference: g.Python.SourcePreference,
+			DerivationArgs:   g.Python.DerivationArg,
 		},
 	})
 	if err != nil {
